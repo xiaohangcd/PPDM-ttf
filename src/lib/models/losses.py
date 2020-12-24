@@ -10,7 +10,7 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
-from .utils import _tranpose_and_gather_feat
+from .utils import _tranpose_and_gather_feat, _offset_format
 import torch.nn.functional as F
 
 
@@ -152,11 +152,12 @@ class OffsetLoss(nn.Module):
   def __init__(self):
     super(OffsetLoss, self).__init__()
   
-  def forward(self, output, mask, ind, target, rel_id):
-    pred = _tranpose_and_gather_feat(output, ind)
-    mask = mask.unsqueeze(2).expand_as(pred).float()
-    # loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
-    loss = F.l1_loss(pred * mask, target * mask, size_average=False)
+  def forward(self, output, mask, ind, target, rel_id, heatmap_mask):
+    pred = _offset_format(output, rel_id)
+    heatmap_mask = heatmap_mask.unsqueeze(2).expand_as(pred).float()
+    # loss = F.l1_loss(pred * heatmap_mask, target * heatmap_mask, reduction='elementwise_mean')
+    loss = F.l1_loss(pred * heatmap_mask, target * heatmap_mask, size_average=False)
+    mask = mask.float()
     loss = loss / (mask.sum() + 1e-4)
     return loss
 

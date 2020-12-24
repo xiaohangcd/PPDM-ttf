@@ -24,6 +24,16 @@ def _tranpose_and_gather_feat(feat, ind):
     feat = feat.view(feat.size(0), -1, feat.size(3))
     feat = _gather_feat(feat, ind)
     return feat
+  
+def _offset_format(feat, id):
+    feat = feat.view(feat.size(0), -1, 2, feat.size(2), feat.size(3))
+    id = id.unsqueeze(2).unsqueeze(3).unsqueeze(4).expand(id.size(0), id.size(1), 2, feat.size(3), feat.size(4))
+    feat = feat.gather(1, id)
+    # feat = feat.view(feat.size(0),-1,feat.size(3),feat.size(4))
+    return feat
+
+
+
 
 def flip_tensor(x):
     return torch.flip(x, [3])

@@ -1,4 +1,4 @@
- from __future__ import absolute_import
+from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
@@ -26,7 +26,7 @@ class BaseTrainer(object):
     self.opt = opt
     self.optimizer = optimizer
     self.loss_stats, self.loss = self._get_losses(opt)
-    self.model_with_loss =  (model, self.loss)
+    self.model_with_loss =  ModleWithLoss(model, self.loss)
 
   def set_device(self, gpus, chunk_sizes, device):
     if len(gpus) > 1:
@@ -66,6 +66,7 @@ class BaseTrainer(object):
       for k in batch:
         if k != 'meta':
           batch[k] = batch[k].to(device=opt.device, non_blocking=True)    
+
       output, loss, loss_stats = model_with_loss(batch)
       loss = loss.mean()
       if phase == 'train':

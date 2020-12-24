@@ -17,7 +17,7 @@ class HoidetLoss(torch.nn.Module):
         self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
         self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
             RegLoss() if opt.reg_loss == 'sl1' else None
-        self.offset_loss = OffsetLoss
+        self.offset_loss = OffsetLoss()
         self.crit_wh = torch.nn.L1Loss(reduction='sum') if opt.dense_wh else \
             NormRegL1Loss() if opt.norm_wh else \
                 RegWeightedL1Loss() if opt.cat_spec_wh else self.crit_reg
@@ -51,11 +51,11 @@ class HoidetLoss(torch.nn.Module):
                         batch['ind'], batch['wh']) / opt.num_stacks
                     sub_offset_loss += self.offset_loss(
                         output['sub_offset'], batch['offset_mask'],
-                        batch['rel_ind'], batch['sub_offset'], batch['rel_id']
+                        batch['rel_ind'], batch['sub_offset'], batch['rel_id'], batch['offset_mask_heatmap']
                     )
                     obj_offset_loss += self.offset_loss(
                         output['obj_offset'], batch['offset_mask'],
-                        batch['rel_ind'], batch['obj_offset'], batch['rel_id']
+                        batch['rel_ind'], batch['obj_offset'], batch['rel_id'], batch['offset_mask_heatmap']
                     )
             if opt.reg_offset and opt.off_weight > 0:
                 off_loss += self.crit_reg(output['reg'], batch['reg_mask'],

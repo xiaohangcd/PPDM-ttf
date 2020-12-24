@@ -199,7 +199,7 @@ class HICO(Dataset):
             if h > 0 and w > 0:
                 radius = gaussian_radius((math.ceil(h), math.ceil(w)))
                 radius = max(0, int(radius))
-                radius = self.opt.hm_gauss if self.opt.mse_loss else radius
+                # radius = self.opt.hm_gauss if self.opt.mse_loss else radius
                 wh[k] = 1. * w, 1. * h #目标矩形框的宽高
                 ind[k] = ct_int[1] * output_w + ct_int[0] # 目标中心点在特征图中的索引
                 reg[k] = ct - ct_int #off loss 偏置回归数组
@@ -224,15 +224,17 @@ class HICO(Dataset):
             sub_ct = bbox_ct[hoi['subject_id']] 
             obj_ct = bbox_ct[hoi['object_id']]
             offset_mask[k] = 1
-            draw_gaussian_mask(offset_mask_heatmap[k], rel_ct_int, radius)
+
             #中点
             rel_ct = np.array([(sub_ct[0] + obj_ct[0]) / 2,
                                (sub_ct[1] + obj_ct[1]) / 2], dtype=np.float32)
             radius = gaussian_radius((math.ceil(abs(sub_ct[0] - obj_ct[0])), math.ceil(abs(sub_ct[1] - obj_ct[1]))))
             radius = max(0, int(radius))
-            radius = self.opt.hm_gauss if self.opt.mse_loss else radius
             rel_ct_int = rel_ct.astype(np.int32)
             draw_gaussian(hm_rel[hoi_cate], rel_ct_int, radius)
+            draw_gaussian_mask(offset_mask_heatmap[k], rel_ct_int, radius) #无权重
+            # draw_gaussian(offset_mask_heatmap[k], rel_ct_int, radius)
+            # offset_mask_heatmap[k][hm_rel[hoi_cate]>0] = 1 #draw_gaussian_mask
             draw_offset(sub_offset[k], sub_ct)
             draw_offset(obj_offset[k], obj_ct)
             # rel_sub_offset = np.array([rel_ct_int[0] - sub_ct[0], rel_ct_int[1] - sub_ct[1]], dtype=np.float32)
