@@ -8,7 +8,7 @@ import json
 from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from utils.image import draw_gaussian_mask, draw_offset
+from utils.image import draw_msra_gaussian_mask, draw_umich_gaussian_mask, draw_offset
 import math
 
 def xywh_to_xyxy(boxes):
@@ -169,7 +169,8 @@ class HICO(Dataset):
 
         draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
             draw_umich_gaussian
-
+        draw_gaussian_mask = draw_msra_gaussian_mask if self.opt.mse_loss else \
+            draw_umich_gaussian_mask
         gt_det = []
 
         bbox_ct = []
