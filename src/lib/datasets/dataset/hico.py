@@ -7,8 +7,8 @@ import json
 
 from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
-from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from utils.image import draw_msra_gaussian_mask, draw_umich_gaussian_mask, draw_offset
+from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian, draw_truncate_gaussian
+from utils.image import draw_msra_gaussian_mask, draw_umich_gaussian_mask,draw_truncate_gaussian_mask, draw_offset
 import math
 
 def xywh_to_xyxy(boxes):
@@ -31,6 +31,7 @@ class HICO(Dataset):
         self.opt = opt
         self.root = os.path.join(self.opt.root_path, 'hico_det')
         self.image_dir = self.opt.image_dir
+        self.alpha = 0.54
         if split == 'train':
             self.hoi_annotations = json.load(open(os.path.join(self.root, 'annotations', 'trainval_hico.json'), 'r'))
             self.resize_keep_ratio = resize_keep_ratio
@@ -167,10 +168,13 @@ class HICO(Dataset):
         sub_offset = np.zeros((self.max_rels, 2, output_h, output_w), dtype=np.float32)
         obj_offset = np.zeros((self.max_rels, 2, output_h, output_w), dtype=np.float32)
 
-        draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
-            draw_umich_gaussian
-        draw_gaussian_mask = draw_msra_gaussian_mask if self.opt.mse_loss else \
-            draw_umich_gaussian_mask
+        # draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
+        #     draw_umich_gaussian
+        # draw_gaussian_mask = draw_msra_gaussian_mask if self.opt.mse_loss else \
+        #     draw_umich_gaussian_mask
+        draw_gaussian = draw_truncate_gaussian
+        draw_gaussian_mask = draw_truncate_gaussian_mask
+        
         gt_det = []
 
         bbox_ct = []
@@ -198,14 +202,16 @@ class HICO(Dataset):
             #每个pic一个bbox_ct
             bbox_ct.append(ct_int.tolist())
             if h > 0 and w > 0:
-                radius = gaussian_radius((math.ceil(h), math.ceil(w)))
-                radius = max(0, int(radius))
+                h_radius = max(0, int(h / 2. * self.alpha))
+                w_radius = max(0, int(w / 2. * self.alpha))
+                # radius = gaussian_radius((math.ceil(h), math.ceil(w)))
+                # radius = max(0, int(radius))
                 # radius = self.opt.hm_gauss if self.opt.mse_loss else radius
                 wh[k] = 1. * w, 1. * h #目标矩形框的宽高
                 ind[k] = ct_int[1] * output_w + ct_int[0] # 目标中心点在特征图中的索引
                 reg[k] = ct - ct_int #off loss 偏置回归数组
                 reg_mask[k] = 1 #有目标为1
-                draw_gaussian(hm[cls_id], ct_int, radius)#第cls_id个heatmap进行高斯化
+                draw_gaussian(hm[cls_id], ct_int, h_radius, w_radius)#第cls_id个heatmap进行高斯化
 
                 #左上右下两点和cls_id
                 gt_det.append([ct[0] - w / 2, ct[1] - h / 2,
@@ -229,12 +235,14 @@ class HICO(Dataset):
             #中点
             rel_ct = np.array([(sub_ct[0] + obj_ct[0]) / 2,
                                (sub_ct[1] + obj_ct[1]) / 2], dtype=np.float32)
-            radius = gaussian_radius((math.ceil(abs(sub_ct[0] - obj_ct[0])), math.ceil(abs(sub_ct[1] - obj_ct[1]))))
-            radius = max(0, int(radius))
+            rel_h_radius = max(0, int(abs(sub_ct[1] - obj_ct[1]) / 2. * self.alpha))
+            rel_w_radius = max(0, int(abs(sub_ct[0] - obj_ct[0]) / 2. * self.alpha))
+            # radius = gaussian_radius((math.ceil(abs(sub_ct[0] - obj_ct[0])), math.ceil(abs(sub_ct[1] - obj_ct[1]))))
+            # radius = max(0, int(radius))
             rel_ct_int = rel_ct.astype(np.int32)
-            draw_gaussian(hm_rel[hoi_cate], rel_ct_int, radius)
-            draw_gaussian_mask(offset_mask_heatmap[k], rel_ct_int, radius) #无权重
-            # draw_gaussian(offset_mask_heatmap[k], rel_ct_int, radius)
+            draw_gaussian(hm_rel[hoi_cate], rel_ct_int, rel_h_radius, rel_w_radius)
+            # draw_gaussian_mask(offset_mask_heatmap[k], rel_ct_int, radius) #无权重
+            draw_gaussian(offset_mask_heatmap[k], rel_ct_int, rel_h_radius, rel_w_radius)
             # offset_mask_heatmap[k][hm_rel[hoi_cate]>0] = 1 #draw_gaussian_mask
             draw_offset(sub_offset[k], sub_ct)
             draw_offset(obj_offset[k], obj_ct)

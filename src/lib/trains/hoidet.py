@@ -26,7 +26,7 @@ class HoidetLoss(torch.nn.Module):
     def forward(self, outputs, batch):
         opt = self.opt
         hm_loss, wh_loss, off_loss, hm_rel_loss, sub_offset_loss, obj_offset_loss = 0, 0, 0, 0, 0, 0
-        for s in range(opt.num_stacks):
+        for s in range(opt.num_stacks): #num_stacks = 1
             output = outputs[s]
             if not opt.mse_loss:
                 output['hm'] = _sigmoid(output['hm'])
