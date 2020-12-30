@@ -289,10 +289,13 @@ def draw_msra_gaussian_mask(heatmap, center, sigma):
   return heatmap
 
 def draw_offset(offset_heatmap, point):
-  x,y = point
-  for i in range(offset_heatmap.shape[1]):
-      for j in range(offset_heatmap.shape[2]):
-          offset_heatmap[:,i,j] = i-x,j-y
+  _, h, w = offset_heatmap.shape
+  sx, sy = np.meshgrid(np.arange(w), np.arange(h))
+  pos = np.stack((sy, sx), axis=0)
+  offset_heatmap = pos - np.array(point).reshape(2, 1, 1)
+  # for i in range(offset_heatmap.shape[1]):
+  #     for j in range(offset_heatmap.shape[2]):
+  #         offset_heatmap[:,i,j] = i-x,j-y
   return offset_heatmap  
 
 def grayscale(image):
