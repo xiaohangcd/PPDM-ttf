@@ -185,6 +185,14 @@ class opts(object):
         self.parser.add_argument('--use_verb_sub', type=int, default=0
                                  , help='whether using verb categories for subject')
 
+        # custom
+        self.parser.add_argument('--cat_spec_offset', action='store_true',
+                                 help='category specific offset')
+        self.parser.add_argument('--alpha', type=float, default=0.54,
+                                 help='object gaussian ratio')
+        self.parser.add_argument('--beta', type=float, default=1,
+                                 help='interaction gaussian ratio')
+
     def parse(self, args=''):
         print(args)
         if args == '':
@@ -257,12 +265,12 @@ class opts(object):
 
 
         if opt.task == 'hoidet':
-            assert opt.dataset in ['hico', 'vcoco', 'hoia']
+            assert opt.dataset in ['hico', 'vcoco', 'hoia', 'hicottf']
             opt.heads = {'hm': opt.num_classes,
-                         'wh': 2 if not opt.cat_spec_wh else 2 * opt.num_classes,
+                         'wh': 4 if not opt.cat_spec_wh else 4 * opt.num_classes,
                          'hm_rel': opt.num_classes_verb,
-                         'sub_offset': 2 * opt.num_classes_verb,
-                         'obj_offset': 2 * opt.num_classes_verb}
+                         'offset': 4 if not opt.cat_spec_offset else 4 * opt.num_classes_verb}
+
             if opt.reg_offset:
                 opt.heads.update({'reg': 2})
         else:

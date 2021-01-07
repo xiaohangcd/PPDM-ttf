@@ -8,16 +8,19 @@ import json
 from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian, draw_truncate_gaussian
-from utils.image import draw_msra_gaussian_mask, draw_umich_gaussian_mask,draw_truncate_gaussian_mask, draw_offset
+from utils.image import draw_msra_gaussian_mask, draw_umich_gaussian_mask, draw_truncate_gaussian_mask, draw_offset
 import math
 
+
 def xywh_to_xyxy(boxes):
-  """Convert [x y w h] box format to [x1 y1 x2 y2] format."""
-  return np.hstack((boxes[:, 0:2], boxes[:, 0:2] + boxes[:, 2:4] - 1))
+    """Convert [x y w h] box format to [x1 y1 x2 y2] format."""
+    return np.hstack((boxes[:, 0:2], boxes[:, 0:2] + boxes[:, 2:4] - 1))
+
 
 def xyxy_to_xywh(boxes):
-  """Convert [x1 y1 x2 y2] box format to [x y w h] format."""
-  return np.hstack((boxes[:, 0:2], boxes[:, 2:4] - boxes[:, 0:2] + 1))
+    """Convert [x1 y1 x2 y2] box format to [x y w h] format."""
+    return np.hstack((boxes[:, 0:2], boxes[:, 2:4] - boxes[:, 0:2] + 1))
+
 
 class HICO(Dataset):
     num_classes = 80
@@ -27,11 +30,10 @@ class HICO(Dataset):
                     dtype=np.float32).reshape(1, 1, 3)
     std = np.array([0.28863828, 0.27408164, 0.27809835],
                    dtype=np.float32).reshape(1, 1, 3)
-    def __init__(self,  opt, split = 'train', resize_keep_ratio=False, multiscale_mode='value'):
+    def __init__(self, opt, split = 'train', resize_keep_ratio=False, multiscale_mode='value'):
         self.opt = opt
         self.root = os.path.join(self.opt.root_path, 'hico_det')
         self.image_dir = self.opt.image_dir
-        self.alpha = 0.54
         if split == 'train':
             self.hoi_annotations = json.load(open(os.path.join(self.root, 'annotations', 'trainval_hico.json'), 'r'))
             self.resize_keep_ratio = resize_keep_ratio
@@ -107,11 +109,12 @@ class HICO(Dataset):
         anns = self.hoi_annotations[img_id]['annotations']
         hoi_anns = self.hoi_annotations[img_id]['hoi_annotation']
         num_objs = min(len(anns), self.max_objs)
+
         img = cv2.imread(img_path)
 
         height, width = img.shape[0], img.shape[1]
-        c = np.array([img.shape[1] / 2., img.shape[0] / 2.], dtype=np.float32) #图片中心点
-        if self.opt.keep_res: #默认false
+        c = np.array([img.shape[1] / 2., img.shape[0] / 2.], dtype=np.float32)
+        if self.opt.keep_res:
             input_h = (height | self.opt.pad) + 1
             input_w = (width | self.opt.pad) + 1
             s = np.array([input_w, input_h], dtype=np.float32)
@@ -121,7 +124,7 @@ class HICO(Dataset):
 
         flipped = False
         if self.split == 'train':
-            if not self.opt.not_rand_crop: #随机裁剪
+            if not self.opt.not_rand_crop:
                 s = s * np.random.choice(np.arange(0.7, 1.4, 0.1))
                 w_border = self._get_border(128, img.shape[1])
                 h_border = self._get_border(128, img.shape[0])
@@ -134,13 +137,13 @@ class HICO(Dataset):
                 c[1] += s * np.clip(np.random.randn() * cf, -2 * cf, 2 * cf)
                 s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
 
-            if np.random.random() < self.opt.flip: #随机翻转
+            if np.random.random() < self.opt.flip:
                 flipped = True
                 img = img[:, ::-1, :]
                 c[0] = width - c[0] - 1
 
         trans_input = get_affine_transform(
-            c, s, 0, [input_w, input_h]) #仿射变换
+            c, s, 0, [input_w, input_h])
         inp = cv2.warpAffine(img, trans_input,
                              (input_w, input_h),
                              flags=cv2.INTER_LINEAR)
@@ -155,31 +158,24 @@ class HICO(Dataset):
         num_classes = self.num_classes
         trans_output = get_affine_transform(c, s, 0, [output_w, output_h])
 
-        hm = np.zeros((num_classes, output_h, output_w), dtype=np.float32) #heatmap（80,128,128）
-        hm_rel = np.zeros((self.num_classes_verb, output_h, output_w), dtype = np.float32)#verb_heatmap(117,128,128)
-        #self.max_objs 表示human&obj个数
+        hm = np.zeros((num_classes, output_h, output_w), dtype=np.float32)
+        hm_rel = np.zeros((self.num_classes_verb, output_h, output_w), dtype = np.float32)
         wh = np.zeros((self.max_objs, 2), dtype=np.float32)
         reg = np.zeros((self.max_objs, 2), dtype=np.float32)
         ind = np.zeros((self.max_objs), dtype=np.int64)
         reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
 
-        # sub_offset = np.zeros((self.max_rels, 2), dtype=np.float32)
-        # obj_offset = np.zeros((self.max_rels, 2), dtype=np.float32)
-        sub_offset = np.zeros((self.max_rels, 2, output_h, output_w), dtype=np.float32)
-        obj_offset = np.zeros((self.max_rels, 2, output_h, output_w), dtype=np.float32)
+        sub_offset = np.zeros((self.max_rels, 2), dtype=np.float32)
+        obj_offset = np.zeros((self.max_rels, 2), dtype=np.float32)
 
-        # draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
-        #     draw_umich_gaussian
-        # draw_gaussian_mask = draw_msra_gaussian_mask if self.opt.mse_loss else \
-        #     draw_umich_gaussian_mask
-        draw_gaussian = draw_truncate_gaussian
-        draw_gaussian_mask = draw_truncate_gaussian_mask
-        
+
+        draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
+            draw_umich_gaussian
+
         gt_det = []
 
         bbox_ct = []
         num_rels = min(len(hoi_anns), self.max_rels)
-        #依次对每个human&obj做以下操作
         for k in range(num_objs):
             ann = anns[k]
             bbox = np.asarray(ann['bbox'])
@@ -194,72 +190,57 @@ class HICO(Dataset):
             bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
             h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
 
-            #bbox中点
+
             ct = np.array(
                 [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
 
             ct_int = ct.astype(np.int32)
-            #每个pic一个bbox_ct
             bbox_ct.append(ct_int.tolist())
             if h > 0 and w > 0:
-                h_radius = max(0, int(h / 2. * self.alpha))
-                w_radius = max(0, int(w / 2. * self.alpha))
-                # radius = gaussian_radius((math.ceil(h), math.ceil(w)))
-                # radius = max(0, int(radius))
-                # radius = self.opt.hm_gauss if self.opt.mse_loss else radius
-                wh[k] = 1. * w, 1. * h #目标矩形框的宽高
-                ind[k] = ct_int[1] * output_w + ct_int[0] # 目标中心点在特征图中的索引
-                reg[k] = ct - ct_int #off loss 偏置回归数组
-                reg_mask[k] = 1 #有目标为1
-                draw_gaussian(hm[cls_id], ct_int, h_radius, w_radius)#第cls_id个heatmap进行高斯化
+                radius = gaussian_radius((math.ceil(h), math.ceil(w)))
+                radius = max(0, int(radius))
+                radius = self.opt.hm_gauss if self.opt.mse_loss else radius
+                wh[k] = 1. * w, 1. * h
+                ind[k] = ct_int[1] * output_w + ct_int[0]
+                reg[k] = ct - ct_int
+                reg_mask[k] = 1
+                draw_gaussian(hm[cls_id], ct_int, radius)
 
-                #左上右下两点和cls_id
+
                 gt_det.append([ct[0] - w / 2, ct[1] - h / 2,
                                ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
 
 
 
         offset_mask = np.zeros((self.max_rels), dtype=np.uint8)
-        offset_mask_heatmap = np.zeros((self.max_rels, output_h, output_w), dtype=np.float32)
         rel_ind = np.zeros((self.max_rels), dtype=np.int64)
-        rel_id = np.zeros((self.max_rels), dtype=np.int64)
+        rel_scale = self.opt.rel_scale
         for k in range(num_rels):
             hoi = hoi_anns[k]
             if isinstance(hoi['category_id'], str):
                 hoi['category_id'] = int(hoi['category_id'].replace('\n', ''))
             hoi_cate = int(self.cat_ids_verb[hoi['category_id']])
-            sub_ct = bbox_ct[hoi['subject_id']] 
+            sub_ct = bbox_ct[hoi['subject_id']]
             obj_ct = bbox_ct[hoi['object_id']]
             offset_mask[k] = 1
-
-            #中点
-            rel_ct = np.array([(sub_ct[0] + obj_ct[0]) / 2,
-                               (sub_ct[1] + obj_ct[1]) / 2], dtype=np.float32)
-            rel_h_radius = max(0, int(abs(sub_ct[1] - obj_ct[1]) / 2. * self.alpha))
-            rel_w_radius = max(0, int(abs(sub_ct[0] - obj_ct[0]) / 2. * self.alpha))
-            # radius = gaussian_radius((math.ceil(abs(sub_ct[0] - obj_ct[0])), math.ceil(abs(sub_ct[1] - obj_ct[1]))))
-            # radius = max(0, int(radius))
+            # rel_ct = np.array([(sub_ct[0] + obj_ct[0]) / 2,
+            #                    (sub_ct[1] + obj_ct[1]) / 2], dtype=np.float32)
+            rel_ct = np.array([(1 - rel_scale) * sub_ct[0] + rel_scale * obj_ct[0],
+                               (1 - rel_scale) * sub_ct[1] + rel_scale * obj_ct[1]], dtype=np.float32)
+            radius = gaussian_radius((math.ceil(abs(sub_ct[0] - obj_ct[0])), math.ceil(abs(sub_ct[1] - obj_ct[1]))))
+            radius = max(0, int(radius))
+            radius = self.opt.hm_gauss if self.opt.mse_loss else radius
             rel_ct_int = rel_ct.astype(np.int32)
-            draw_gaussian(hm_rel[hoi_cate], rel_ct_int, rel_h_radius, rel_w_radius)
-            # draw_gaussian_mask(offset_mask_heatmap[k], rel_ct_int, radius) #无权重
-            draw_gaussian(offset_mask_heatmap[k], rel_ct_int, rel_h_radius, rel_w_radius)
-            # offset_mask_heatmap[k][hm_rel[hoi_cate]>0] = 1 #draw_gaussian_mask
-            draw_offset(sub_offset[k], sub_ct)
-            draw_offset(obj_offset[k], obj_ct)
-            # rel_sub_offset = np.array([rel_ct_int[0] - sub_ct[0], rel_ct_int[1] - sub_ct[1]], dtype=np.float32)
-            # rel_obj_offset = np.array([rel_ct_int[0] - obj_ct[0], rel_ct_int[1] - obj_ct[1]], dtype=np.float32)
-            # sub_offset[k] = 1.* rel_sub_offset[0], 1.*rel_sub_offset[1] #中点到human中点的offset
-            # obj_offset[k] = 1.* rel_obj_offset[0], 1.*rel_obj_offset[1] #中点到obj中点的offset
+            draw_gaussian(hm_rel[hoi_cate], rel_ct_int, radius)
+            rel_sub_offset = np.array([rel_ct_int[0] - sub_ct[0], rel_ct_int[1] - sub_ct[1]], dtype=np.float32)
+            rel_obj_offset = np.array([rel_ct_int[0] - obj_ct[0], rel_ct_int[1] - obj_ct[1]], dtype=np.float32)
+            sub_offset[k] = 1.* rel_sub_offset[0], 1.*rel_sub_offset[1]
+            obj_offset[k] = 1.* rel_obj_offset[0], 1.*rel_obj_offset[1]
             rel_ind[k] = rel_ct_int[1] * output_w + rel_ct_int[0]
-            rel_id[k] = hoi_cate
-        # 均为pipeline 变换后
-        # input:送入网络的图像 hm：human&obj heatmap [80,128,128]
-        # 长度为目标数：reg_mask[max_obj,]:有目标为1（为0情况应该是注释有误h<0 or w<0），ind[max_obj,]:目标中心点在特征图索引 wh[max_obj,2]:obj宽高
-        # hm_rel[117,128,128]：rel heatmap sub_offset[max_rels,2,128,128]：到human的offset obj_offset[max_rels,2,128,128] 到obj的offset
-        # 长度为64（定义）：offset_mask[max_rels,]:有动作目标为1，rel_ind[max_rels,]:动作目标中心点在特征图索引
-        # reg[max_obj,2] 中心点误差
-        ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh, 'offset_mask_heatmap': offset_mask_heatmap,
-               'hm_rel': hm_rel, 'sub_offset': sub_offset, 'obj_offset': obj_offset, 'offset_mask': offset_mask, 'rel_ind': rel_ind, 'rel_id': rel_id}
+
+
+        ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh,
+               'hm_rel': hm_rel, 'sub_offset': sub_offset, 'obj_offset': obj_offset, 'offset_mask': offset_mask, 'rel_ind': rel_ind}
         if self.opt.reg_offset:
             ret.update({'reg': reg})
         return ret
@@ -269,3 +250,160 @@ class HICO(Dataset):
 
     def shuffle(self):
         random.shuffle(self.ids)
+
+
+class HICOTtf(HICO):
+    def __getitem__(self, index):
+        img_id = self.ids[index]
+
+        file_name = self.hoi_annotations[img_id]['file_name']
+        img_path = os.path.join(self.root, self.image_dir, file_name)
+        anns = self.hoi_annotations[img_id]['annotations']
+        hoi_anns = self.hoi_annotations[img_id]['hoi_annotation']
+
+        img = cv2.imread(img_path)
+
+        height, width = img.shape[0], img.shape[1]
+        c = np.array([img.shape[1] / 2., img.shape[0] / 2.], dtype=np.float32)  # 图片中心点
+        if self.opt.keep_res:  # 默认false
+            input_h = (height | self.opt.pad) + 1
+            input_w = (width | self.opt.pad) + 1
+            s = np.array([input_w, input_h], dtype=np.float32)
+        else:
+            s = max(img.shape[0], img.shape[1]) * 1.0
+            input_h, input_w = self.opt.input_h, self.opt.input_w
+
+        flipped = False
+        if self.split == 'train':
+            if not self.opt.not_rand_crop:  # 随机裁剪
+                s = s * np.random.choice(np.arange(0.7, 1.4, 0.1))
+                w_border = self._get_border(128, img.shape[1])
+                h_border = self._get_border(128, img.shape[0])
+                c[0] = np.random.randint(low=w_border, high=img.shape[1] - w_border)
+                c[1] = np.random.randint(low=h_border, high=img.shape[0] - h_border)
+            else:
+                sf = self.opt.scale
+                cf = self.opt.shift
+                c[0] += s * np.clip(np.random.randn() * cf, -2 * cf, 2 * cf)
+                c[1] += s * np.clip(np.random.randn() * cf, -2 * cf, 2 * cf)
+                s = s * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
+
+            if np.random.random() < self.opt.flip:  # 随机翻转
+                flipped = True
+                img = img[:, ::-1, :]
+                c[0] = width - c[0] - 1
+
+        trans_input = get_affine_transform(
+            c, s, 0, [input_w, input_h])  # 仿射变换
+        inp = cv2.warpAffine(img, trans_input,
+                             (input_w, input_h),
+                             flags=cv2.INTER_LINEAR)
+        inp = (inp.astype(np.float32) / 255.)
+        if self.split == 'train' and not self.opt.no_color_aug:
+            color_aug(self._data_rng, inp, self._eig_val, self._eig_vec)
+        inp = (inp - self.mean) / self.std
+        inp = inp.transpose(2, 0, 1)
+
+        output_h = input_h // self.opt.down_ratio
+        output_w = input_w // self.opt.down_ratio
+        num_classes = self.num_classes
+        trans_output = get_affine_transform(c, s, 0, [output_w, output_h])
+
+        obj_annos = []
+        for ann in anns:
+            bbox = np.asarray(ann['bbox'])  # (x1, y1, x2, y2)
+            if isinstance(ann['category_id'], str):
+                ann['category_id'] = int(ann['category_id'].replace('\n', ''))
+            cls_id = int(self.cat_ids[ann['category_id']])
+            if flipped:
+                bbox[[0, 2]] = width - bbox[[2, 0]] - 1
+            bbox[:2] = affine_transform(bbox[:2], trans_output)
+            bbox[2:] = affine_transform(bbox[2:], trans_output)
+            bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, output_w - 1)
+            bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
+
+            ct = np.array(
+                [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
+            ct_int = ct.astype(np.int32)
+
+            h, w = bbox[3] - bbox[1] + 1, bbox[2] - bbox[0] + 1
+            h_radius = max(1, int(h / 2. * self.opt.alpha))
+            w_radius = max(1, int(w / 2. * self.opt.alpha))
+            area = np.log(h * w)
+
+            obj_annos.append({'bbox': bbox, 'cls_id': cls_id, 'area': area, 'ct': ct,
+                             'ct_int': ct_int, 'h_radius': h_radius, 'w_radius': w_radius})
+
+        rel_dict = dict()
+        for hoi in hoi_anns:
+            if isinstance(hoi['category_id'], str):
+                hoi['category_id'] = int(hoi['category_id'].replace('\n', ''))
+            sub = hoi['subject_id']
+            obj = hoi['object_id']
+            hoi_cate = int(self.cat_ids_verb[hoi['category_id']])
+            if (sub, obj) not in rel_dict:
+                sub_ct = obj_annos[sub]['ct']
+                obj_ct = obj_annos[obj]['ct']
+                offset = np.concatenate((sub_ct, obj_ct))
+
+                rel_ct = np.array([(sub_ct[0] + obj_ct[0]) / 2,
+                                   (sub_ct[1] + obj_ct[1]) / 2], dtype=np.float32)
+                rel_ct_int = rel_ct.astype(np.int32)
+
+                h = abs(sub_ct[1] - obj_ct[1]) / 2. + 1
+                w = abs(sub_ct[0] - obj_ct[0]) / 2. + 1
+                rel_h_radius = max(1, int(h * self.opt.beta))
+                rel_w_radius = max(1, int(w * self.opt.beta))
+                area = np.log(h * w)
+
+                rel_dict[(sub, obj)] = {'offset': offset, 'rel_ct_int': rel_ct_int, 'area': area,
+                                        'rel_h_radius': rel_h_radius, 'rel_w_radius': rel_w_radius, 'cls_ids': [hoi_cate]}
+            else:
+                rel_dict[(sub, obj)]['cls_ids'].append(hoi_cate)
+
+        obj_annos.sort(key=lambda x: x['area'], reverse=True)  # area: large to small
+        rel_annos = [v for k, v in rel_dict.items()]
+        rel_annos.sort(key=lambda x: x['area'], reverse=True)
+
+        heatmap = np.zeros((num_classes, output_h, output_w), dtype=np.float32)  # heatmap（80,128,128）
+        fake_heatmap = np.zeros((output_h, output_w), dtype=np.float32)
+        box_target = np.zeros((4, output_h, output_w), dtype=np.float32)
+        reg_weight = np.zeros((1, output_h, output_w), dtype=np.float32)
+
+        for obj in obj_annos:
+            cls_id = obj['cls_id']
+            fake_heatmap = fake_heatmap * 0
+            draw_truncate_gaussian(fake_heatmap, obj['ct_int'], obj['h_radius'], obj['w_radius'])
+            heatmap[cls_id] = np.maximum(heatmap[cls_id], fake_heatmap)
+            box_target_inds = fake_heatmap > 0
+            box_target[:, box_target_inds] = obj['bbox'][:, None]
+
+            local_heatmap = fake_heatmap[box_target_inds]
+            ct_div = local_heatmap.sum()
+            local_heatmap *= obj['area']
+            reg_weight[0, box_target_inds] = local_heatmap / ct_div
+
+        heatmap_rel = np.zeros((self.num_classes_verb, output_h, output_w), dtype=np.float32)  # verb_heatmap(117,128,128)
+        offset_target = np.zeros((4, output_h, output_w), dtype=np.float32)
+        offset_reg_weight = np.zeros((1, output_h, output_w), dtype=np.float32)
+
+        for rel in rel_annos:
+            cls_ids = rel['cls_ids']
+            fake_heatmap = fake_heatmap * 0
+            draw_truncate_gaussian(fake_heatmap, rel['rel_ct_int'], rel['rel_h_radius'], rel['rel_w_radius'])
+            for cls_id in cls_ids:
+                heatmap_rel[cls_id] = np.maximum(heatmap_rel[cls_id], fake_heatmap)
+            offset_target_inds = fake_heatmap > 0
+            offset_target[:, offset_target_inds] = rel['offset'][:, None]
+
+            local_heatmap = fake_heatmap[offset_target_inds]
+            ct_div = local_heatmap.sum()
+            local_heatmap *= rel['area']
+            offset_reg_weight[0, offset_target_inds] = local_heatmap / ct_div
+
+        ret = {'input': inp, 'hm': heatmap, 'box_target': box_target, 'reg_weight': reg_weight,
+               'hm_rel': heatmap_rel, 'offset_target': offset_target, 'offset_reg_weight': offset_reg_weight}
+        if self.opt.reg_offset:
+            pass
+            # ret.update({'reg': reg})
+        return ret

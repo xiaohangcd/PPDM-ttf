@@ -6,7 +6,7 @@ import torch
 
 from models.losses import FocalLoss
 from models.losses import RegL1Loss, RegLoss, NormRegL1Loss, RegWeightedL1Loss
-from models.losses import OffsetLoss
+from models.losses import OffsetLoss, GiouLoss
 from models.utils import _sigmoid
 from .base_trainer import BaseTrainer
 
@@ -17,7 +17,6 @@ class HoidetLoss(torch.nn.Module):
         self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
         self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
             RegLoss() if opt.reg_loss == 'sl1' else None
-        self.offset_loss = OffsetLoss()
         self.crit_wh = torch.nn.L1Loss(reduction='sum') if opt.dense_wh else \
             NormRegL1Loss() if opt.norm_wh else \
                 RegWeightedL1Loss() if opt.cat_spec_wh else self.crit_reg
@@ -26,7 +25,7 @@ class HoidetLoss(torch.nn.Module):
     def forward(self, outputs, batch):
         opt = self.opt
         hm_loss, wh_loss, off_loss, hm_rel_loss, sub_offset_loss, obj_offset_loss = 0, 0, 0, 0, 0, 0
-        for s in range(opt.num_stacks): #num_stacks = 1
+        for s in range(opt.num_stacks):
             output = outputs[s]
             if not opt.mse_loss:
                 output['hm'] = _sigmoid(output['hm'])
@@ -49,13 +48,13 @@ class HoidetLoss(torch.nn.Module):
                     wh_loss += self.crit_reg(
                         output['wh'], batch['reg_mask'],
                         batch['ind'], batch['wh']) / opt.num_stacks
-                    sub_offset_loss += self.offset_loss(
+                    sub_offset_loss += self.crit_reg(
                         output['sub_offset'], batch['offset_mask'],
-                        batch['rel_ind'], batch['sub_offset'], batch['rel_id'], batch['offset_mask_heatmap']
+                        batch['rel_ind'], batch['sub_offset']
                     )
-                    obj_offset_loss += self.offset_loss(
+                    obj_offset_loss += self.crit_reg(
                         output['obj_offset'], batch['offset_mask'],
-                        batch['rel_ind'], batch['obj_offset'], batch['rel_id'], batch['offset_mask_heatmap']
+                        batch['rel_ind'], batch['obj_offset']
                     )
             if opt.reg_offset and opt.off_weight > 0:
                 off_loss += self.crit_reg(output['reg'], batch['reg_mask'],
@@ -70,12 +69,43 @@ class HoidetLoss(torch.nn.Module):
         return loss, loss_stats
 
 
+class NewHoidetLoss(torch.nn.Module):
+    def __init__(self, opt):
+        super(NewHoidetLoss, self).__init__()
+        self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
+        self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
+            RegLoss() if opt.reg_loss == 'sl1' else None
+        self.crit_wh = GiouLoss()
+        self.crit_offset = OffsetLoss()
+        self.opt = opt
+
+    def forward(self, outputs, batch):
+        opt = self.opt
+        hm_loss, wh_loss, hm_rel_loss, offset_loss = 0, 0, 0, 0
+        for s in range(opt.num_stacks):  # num_stacks = 1
+            output = outputs[s]
+            if not opt.mse_loss:
+                output['hm'] = _sigmoid(output['hm'])
+                output['hm_rel'] = _sigmoid(output['hm_rel'])
+            hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
+            hm_rel_loss += self.crit(output['hm_rel'], batch['hm_rel']) / opt.num_stacks
+
+            wh_loss += self.crit_wh(
+                output['wh'], batch['box_target'], batch['reg_weight']) / opt.num_stacks
+            offset_loss += self.crit_offset(
+                output['offset'], batch['offset_target'], batch['offset_reg_weight']) / opt.num_stacks
+
+        loss = opt.hm_weight * (hm_loss + hm_rel_loss) + opt.wh_weight * (wh_loss + offset_loss)
+        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'wh_loss': wh_loss,
+                      'hm_rel_loss': hm_rel_loss, 'offset_loss': offset_loss}
+        return loss, loss_stats
+
+
 class HoidetTrainer(BaseTrainer):
     def __init__(self, opt, model, optimizer=None):
         super(HoidetTrainer, self).__init__(opt, model, optimizer=optimizer)
 
     def _get_losses(self, opt):
-        loss_states = ['loss', 'hm_loss', 'wh_loss', 'off_loss', 'hm_rel_loss', 'sub_offset_loss',
-                       'obj_offset_loss']
-        loss = HoidetLoss(opt)
+        loss_states = ['loss', 'hm_loss', 'wh_loss', 'hm_rel_loss', 'offset_loss']
+        loss = NewHoidetLoss(opt)
         return loss_states, loss

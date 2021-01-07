@@ -148,18 +148,87 @@ class RegL1Loss(nn.Module):
     loss = loss / (mask.sum() + 1e-4)
     return loss
 
+
 class OffsetLoss(nn.Module):
   def __init__(self):
     super(OffsetLoss, self).__init__()
-  
-  def forward(self, output, mask, ind, target, rel_id, heatmap_mask):
-    pred = _offset_format(output, rel_id)
-    heatmap_mask = heatmap_mask.unsqueeze(2).expand_as(pred).float()
-    # loss = F.l1_loss(pred * heatmap_mask, target * heatmap_mask, reduction='elementwise_mean')
-    loss = F.l1_loss(pred * heatmap_mask, target * heatmap_mask, size_average=False)
-    mask = mask.float()
-    loss = loss / (mask.sum() + 1e-4)
-    return loss
+    self.base_loc = None
+
+  def forward(self, pred_offset, offset_target, offset_weight):
+    H, W = pred_offset.shape[2:]
+    weight = offset_weight.view(-1, H, W)
+    avg_factor = weight.sum() + 1e-4
+
+    if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
+      shifts_x = torch.arange(0, W, dtype=torch.float32, device=pred_offset.device)
+      shifts_y = torch.arange(0, H, dtype=torch.float32, device=pred_offset.device)
+      shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
+      self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
+
+    # (batch, h, w, 4)
+    pred = torch.cat((self.base_loc + pred_offset[:, [0, 1]],
+                      self.base_loc + pred_offset[:, [2, 3]]), dim=1).permute(0, 2, 3, 1)
+    # (batch, h, w, 4)
+    target = offset_target.permute(0, 2, 3, 1)
+
+    pos_mask = weight > 0
+    weight = weight[pos_mask].float()
+
+    offset1 = pred[pos_mask].view(-1, 4)
+    offset2 = target[pos_mask].view(-1, 4)
+
+    loss = F.l1_loss(offset1, offset2, reduction='none')
+    return torch.sum(loss * weight[:, None]) / avg_factor
+
+
+class GiouLoss(nn.Module):
+  """GIoU loss.
+    Computing the GIoU loss between a set of predicted bboxes and target bboxes.
+  """
+  def __init__(self):
+    super(GiouLoss, self).__init__()
+    self.base_loc = None
+
+  def forward(self, pred_wh, box_target, wh_weight):
+    H, W = pred_wh.shape[2:]
+    weight = wh_weight.view(-1, H, W)
+    avg_factor = weight.sum() + 1e-4
+
+    if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
+      shifts_x = torch.arange(0, W, dtype=torch.float32, device=pred_wh.device)
+      shifts_y = torch.arange(0, H, dtype=torch.float32, device=pred_wh.device)
+      shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
+      self.base_loc = torch.stack((shift_x, shift_y), dim=0)  # (2, h, w)
+
+    # (batch, h, w, 4)
+    pred = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
+                      self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1)
+    # (batch, h, w, 4)
+    target = box_target.permute(0, 2, 3, 1)
+
+    pos_mask = weight > 0
+    weight = weight[pos_mask].float()
+
+    bboxes1 = pred[pos_mask].view(-1, 4)
+    bboxes2 = target[pos_mask].view(-1, 4)
+
+    lt = torch.max(bboxes1[:, :2], bboxes2[:, :2])  # [rows, 2]
+    rb = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])  # [rows, 2]
+    wh = (rb - lt + 1).clamp(min=0)  # [rows, 2]
+    enclose_x1y1 = torch.min(bboxes1[:, :2], bboxes2[:, :2])
+    enclose_x2y2 = torch.max(bboxes1[:, 2:], bboxes2[:, 2:])
+    enclose_wh = (enclose_x2y2 - enclose_x1y1 + 1).clamp(min=0)
+
+    overlap = wh[:, 0] * wh[:, 1]
+    ap = (bboxes1[:, 2] - bboxes1[:, 0] + 1) * (bboxes1[:, 3] - bboxes1[:, 1] + 1)
+    ag = (bboxes2[:, 2] - bboxes2[:, 0] + 1) * (bboxes2[:, 3] - bboxes2[:, 1] + 1)
+    ious = overlap / (ap + ag - overlap)
+
+    enclose_area = enclose_wh[:, 0] * enclose_wh[:, 1]  # i.e. C in paper
+    u = ap + ag - overlap
+    gious = ious - (enclose_area - u) / enclose_area
+    iou_distances = 1 - gious
+    return torch.sum(iou_distances * weight)[None] / avg_factor
 
 class NormRegL1Loss(nn.Module):
   def __init__(self):
