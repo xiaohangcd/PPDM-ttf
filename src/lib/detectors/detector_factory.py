@@ -2,8 +2,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from .hoidet import HoidetDetector
+from .hoidet import HoidetDetector, NewHoidetDetector
 
 detector_factory = {
-  'hoidet': HoidetDetector,
+  'hoidet': NewHoidetDetector,
 }

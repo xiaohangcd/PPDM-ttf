@@ -160,7 +160,7 @@ class opts(object):
                                  help='loss weight for keypoint heatmaps.')
         self.parser.add_argument('--off_weight', type=float, default=1,
                                  help='loss weight for keypoint local offsets.')
-        self.parser.add_argument('--wh_weight', type=float, default=0.1,
+        self.parser.add_argument('--wh_weight', type=float, default=5,
                                  help='loss weight for bounding box size.')
 
         # task
@@ -192,6 +192,8 @@ class opts(object):
                                  help='object gaussian ratio')
         self.parser.add_argument('--beta', type=float, default=1,
                                  help='interaction gaussian ratio')
+        self.parser.add_argument('--offset_weight', type=float, default=0.1,
+                                 help='loss weight for offset.')
 
     def parse(self, args=''):
         print(args)

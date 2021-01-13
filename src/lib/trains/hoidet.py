@@ -95,7 +95,7 @@ class NewHoidetLoss(torch.nn.Module):
             offset_loss += self.crit_offset(
                 output['offset'], batch['offset_target'], batch['offset_reg_weight']) / opt.num_stacks
 
-        loss = opt.hm_weight * (hm_loss + hm_rel_loss) + opt.wh_weight * (wh_loss + offset_loss)
+        loss = opt.hm_weight * (hm_loss + hm_rel_loss) + opt.wh_weight * wh_loss + opt.offset_weight * offset_loss
         loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'wh_loss': wh_loss,
                       'hm_rel_loss': hm_rel_loss, 'offset_loss': offset_loss}
         return loss, loss_stats

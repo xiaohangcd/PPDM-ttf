@@ -6,7 +6,7 @@ import numpy as np
 import time
 import torch
 
-from models.decode import hoidet_decode
+from models.decode import hoidet_decode, new_hoidet_decode
 from utils.post_process import ctdet_post_process
 
 from .base_detector import BaseDetector
@@ -116,3 +116,24 @@ class HoidetDetector(BaseDetector):
                                              'category_id': verb_cate_ids[int(rel_i[2])], 'score': rel_i[3]})
         return output
 
+
+class NewHoidetDetector(HoidetDetector):
+    def process(self, images, return_time=False):
+
+        with torch.no_grad():
+            output = self.model(images)[-1]
+            hm_obj = output['hm'].sigmoid_()
+            hm_rel = output['hm_rel'].sigmoid_()
+            wh = output['wh']
+            sub_offset = output['offset'][:, :2, :, :]
+            obj_offset = output['offset'][:, 2:, :, :]
+            torch.cuda.synchronize()
+            forward_time = time.time()
+
+            dets_obj, dets_sub, rel = new_hoidet_decode(hm_obj, wh, hm_rel, sub_offset, obj_offset,
+                                                        corremat=self.corre_mat, is_sub_verb=self.opt.use_verb_sub)
+
+        if return_time:
+            return output, dets_obj, dets_sub, rel, forward_time, images.size()[2], images.size()[3]
+        else:
+            return output, dets_obj, dets_sub, rel, images.size()[2], images.size()[3]
